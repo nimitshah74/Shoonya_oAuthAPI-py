@@ -12,6 +12,173 @@ to build this package and install it on your server please use
 
 ****
 
+## Fresh Setup, OAuth Login, and Health Check
+
+Use these steps on a fresh machine to install the wrapper, configure OAuth, verify the static-IP route, and test the API connection without placing any orders.
+
+### 1. Clone the feature branch
+
+```bash
+git clone -b feature-oauth git@github.com:nimitshah74/Shoonya_oAuthAPI-py.git
+cd Shoonya_oAuthAPI-py
+```
+
+If SSH is not configured for GitHub, use HTTPS instead:
+
+```bash
+git clone -b feature-oauth https://github.com/nimitshah74/Shoonya_oAuthAPI-py.git
+cd Shoonya_oAuthAPI-py
+```
+
+### 2. Create and activate a virtual environment
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements-dev.txt
+```
+
+On Windows PowerShell, activate with:
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+```
+
+### 3. Fill `cred.yml`
+
+Open `cred.yml` and fill only your own values. Keep empty values as `null`.
+
+```yaml
+Access_token: null
+Account_ID: null
+Secret_Code: <your_oauth_secret_code>
+UID: <your_shoonya_user_id>
+client_id: <your_oauth_client_id_or_app_id>
+oauth_url: https://trade.shoonya.com/OAuthlogin/investor-entry-level/login
+PASSWORD: <your_shoonya_login_password>
+TOTP: <your_totp_secret_or_current_6_digit_otp>
+Static_IP: null
+HTTP_PROXY: null
+HTTPS_PROXY: null
+Proxy_Host: <static_ip_proxy_host_or_null>
+Proxy_Port: <static_ip_proxy_port_or_null>
+Proxy_UserID: <static_ip_proxy_user_or_null>
+Proxy_Password: <static_ip_proxy_password_or_null>
+```
+
+Prefer a TOTP secret in `TOTP`; a current 6-digit OTP may expire during automation.
+
+For Shoonya static-IP validation, use one of these network modes:
+
+- If you have a static-IP proxy/VPS, fill `Proxy_Host`, `Proxy_Port`, `Proxy_UserID`, and `Proxy_Password`.
+- If the registered static IP is actually assigned to your local machine or VPN interface, fill `Static_IP`.
+- Do not put the broker-whitelisted proxy exit IP in `Static_IP` unless your machine truly owns that IP.
+
+### 4. Verify the IP route
+
+```bash
+python3 shoonya_oauth_flow.py --show-public-ip
+```
+
+If a static-IP proxy is configured, this should print the IP whitelisted with Shoonya. If it prints a different IP, fix the proxy/VPN settings before continuing.
+
+### 5. Run automated OAuth and a no-order health check
+
+```bash
+python3 shoonya_oauth_flow.py --auto-login --health-check limits
+```
+
+This command:
+
+- opens Shoonya OAuth login in headless Chrome,
+- enters `UID`, `PASSWORD`, and `TOTP`,
+- captures the OAuth `code`,
+- exchanges it for tokens,
+- saves `Access_token`, `Account_ID`, `Refresh_token`, and token metadata in `cred.yml`,
+- calls `get_limits()` as a read-only health check.
+
+It does not place, modify, or cancel orders.
+
+If headless Chrome fails, run with a visible browser:
+
+```bash
+python3 shoonya_oauth_flow.py --auto-login --show-browser --health-check limits
+```
+
+Expected success output includes:
+
+```text
+Running automated Shoonya OAuth login in Selenium...
+Read-only health check passed: limits
+Shoonya API authenticated...
+```
+
+After the first successful login, tokens are saved. You can rerun the read-only connection check with:
+
+```bash
+python3 shoonya_oauth_flow.py --health-check limits
+```
+
+### 6. Use the authenticated API in code
+
+```python
+from shoonya_oauth_flow import get_authenticated_api
+
+api = get_authenticated_api()
+
+# Read-only check
+limits = api.get_limits()
+print(limits)
+
+# Example order call, uncomment only when you intentionally want to trade.
+# api.place_order(
+#     buy_or_sell="B",
+#     product_type="C",
+#     exchange="NSE",
+#     tradingsymbol="INFY-EQ",
+#     quantity=1,
+#     discloseqty=0,
+#     price_type="LMT",
+#     price=1500.0,
+#     retention="DAY",
+#     remarks="my_order_001",
+# )
+```
+
+### 7. Run the local test suite
+
+```bash
+python -m unittest tests.test_shoonya_oauth_flow -v
+python -m coverage run --source=shoonya_oauth_flow -m unittest tests.test_shoonya_oauth_flow
+python -m coverage report -m
+```
+
+The focused OAuth tests mock network/browser behavior and do not place orders.
+
+### Troubleshooting
+
+`INVALID_IP`: the token exchange reached Shoonya, but Shoonya rejected your source IP. Run:
+
+```bash
+python3 shoonya_oauth_flow.py --show-public-ip
+```
+
+Then confirm that exact IP is whitelisted with Shoonya.
+
+`Can't assign requested address`: `Static_IP` is set to an IP your local machine does not own. Clear `Static_IP` and use proxy fields instead, or connect to the VPN/interface that owns that IP.
+
+YAML parsing errors in `cred.yml`: quote values containing special characters, especially passwords:
+
+```yaml
+Proxy_Password: "value:with#special@chars"
+PASSWORD: "value:with#special@chars"
+```
+
+The macOS `NotOpenSSLWarning` from urllib3 is usually harmless for this flow. Use a Homebrew or pyenv Python if you want to remove the warning.
+
+****
+
 ## API 
 ```NorenApi```
 <!-- [login](#md-login) -->
@@ -2566,5 +2733,4 @@ Proprietary and confidential.
 All file transfers are logged.
 
 ****
-
 
